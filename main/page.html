@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ESP32 灯控</title>
+<link rel="icon" href="data:,">
+<style>
+  body { font-family: system-ui, sans-serif; background: #111; color: #eee;
+         max-width: 420px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 22px; margin: 0 0 20px; }
+  .preview { height: 90px; border-radius: 16px; margin-bottom: 20px;
+             box-shadow: 0 0 40px var(--c); background: var(--c); transition: .15s; }
+  label { display: block; margin: 18px 0 8px; color: #aaa; font-size: 14px; }
+  input[type=color] { width: 100%; height: 56px; border: none; border-radius: 12px; background: none; }
+  input[type=range] { width: 100%; }
+  .presets { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+  .presets button { height: 40px; border-radius: 10px; border: 2px solid #333; cursor: pointer; }
+  .power { width: 100%; height: 52px; margin-top: 24px; font-size: 18px; border: none;
+           border-radius: 12px; cursor: pointer; background: #2a7; color: #fff; }
+  .power.off { background: #444; }
+  .status { margin-top: 16px; color: #777; font-size: 13px; text-align: center; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+         background: #a33; margin-right: 6px; vertical-align: middle; }
+  .dot.ok { background: #2a7; }
+  h2 { font-size: 16px; margin: 32px 0 12px; color: #ccc; }
+  .card { background: #1b1b1b; border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; }
+  .row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 14px; }
+  .row span:first-child { color: #888; flex-shrink: 0; }
+  .row span:last-child { text-align: right; word-break: break-all; font-variant-numeric: tabular-nums; }
+  .meter { margin: 10px 0 4px; }
+  .meter .head { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px; }
+  .meter .head span:first-child { color: #888; }
+  .meter .head span:last-child { font-variant-numeric: tabular-nums; }
+  .bar { height: 8px; background: #2a2a2a; border-radius: 4px; overflow: hidden; }
+  .bar div { height: 100%; width: 0; background: #2a7; border-radius: 4px; transition: width .3s; }
+  .bar div.warn { background: #c90; }
+  .bar div.bad { background: #c33; }
+  .sub { font-size: 12px; color: #666; margin-top: 4px; }
+  select { background: #222; color: #eee; border: 1px solid #333; border-radius: 8px; padding: 4px 8px; }
+  .power:disabled { opacity: .5; cursor: default; }
+</style>
+</head>
+<body>
+<h1>ESP32-S3 灯控</h1>
+<div class="preview" id="preview"></div>
+
+<label>颜色</label>
+<input type="color" id="color">
+
+<label>快捷颜色</label>
+<div class="presets" id="presets"></div>
+
+<label>亮度 <span id="bv"></span></label>
+<input type="range" id="bright" min="0" max="255">
+
+<button class="power" id="power"></button>
+<div class="status"><span class="dot" id="dot"></span><span id="status">连接中...</span></div>
+
+<h2>资源占用 <span class="sub" id="sysTime"></span></h2>
+<div class="card" id="meters"></div>
+
+<h2>硬件与网络</h2>
+<div class="card" id="info"></div>
+
+<h2>网速测试</h2>
+<div class="card">
+  <div class="row"><span>测试数据量</span><span><select id="spSize">
+    <option value="1" selected>1 MB</option><option value="4">4 MB</option><option value="16">16 MB</option>
+  </select></span></div>
+  <div class="row"><span>延迟（HTTP 往返，取中位数）</span><span id="spPing">-</span></div>
+  <div class="row"><span>下行（板子 → 浏览器）</span><span id="spDown">-</span></div>
+  <div class="row"><span>上行（浏览器 → 板子）</span><span id="spUp">-</span></div>
+  <div class="bar" style="margin-top:10px"><div id="spBar"></div></div>
+  <div class="sub" id="spMsg">测试期间板子暂停响应其他请求，灯控会卡顿几秒</div>
+  <button class="power" id="spBtn" style="margin-top:14px">开始测速</button>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let state = { hex: '#000000', bright: 0, on: false };
+let sock, sentAt = 0, latency = null, dragging = false;
+let testing = false;  // 网速测试进行中
+
+function render() {
+  $('color').value = state.hex;
+  if (!dragging) $('bright').value = state.bright;
+  $('bv').textContent = Math.round(state.bright / 255 * 100) + '%';
+  $('power').textContent = state.on ? '关灯' : '开灯';
+  $('power').className = 'power' + (state.on ? '' : ' off');
+  $('preview').style.setProperty('--c', state.on ? state.hex : '#222');
+}
+
+function setStatus(ok, text) {
+  $('dot').className = 'dot' + (ok ? ' ok' : '');
+  $('status').textContent = text;
+}
+
+function connect() {
+  sock = new WebSocket('ws://' + location.hostname + ':81/');
+  sock.onopen = () => { sock.send('get'); };
+  sock.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    if (msg.error) { setStatus(true, '指令错误：' + msg.error); return; }
+    if (sentAt) { latency = Math.round(performance.now() - sentAt); sentAt = 0; }
+    state = msg;
+    render();
+    setStatus(true, '实时连接' + (latency !== null ? ' · 延迟 ' + latency + ' ms' : '') +
+                    ' · 在线 ' + msg.clients + ' 个页面');
+  };
+  sock.onclose = () => {
+    setStatus(false, '连接断开，2 秒后重连...');
+    setTimeout(connect, 2000);
+  };
+}
+connect();
+
+// 节流：拖动时最多每 30ms 发一次，且保证最后一个值一定会发出去
+let pending = null, timer = null;
+function send(params) {
+  pending = Object.assign(pending || {}, params);
+  if (timer) return;
+  flush();
+  timer = setInterval(() => { if (pending) flush(); else { clearInterval(timer); timer = null; } }, 30);
+}
+function flush() {
+  if (!sock || sock.readyState !== WebSocket.OPEN) { pending = null; return; }
+  sock.send(new URLSearchParams(pending).toString());
+  sentAt = performance.now();
+  pending = null;
+}
+
+$('color').oninput = e => { state.hex = e.target.value; render(); send({ hex: state.hex.slice(1) }); };
+$('bright').oninput = e => { dragging = true; state.bright = +e.target.value; render(); send({ bright: state.bright }); };
+$('bright').onchange = () => { dragging = false; };
+$('power').onclick = () => send({ on: state.on ? 0 : 1 });
+
+['#ff0000', '#ff6600', '#ffcc00', '#00ff00', '#0088ff', '#aa00ff'].forEach(c => {
+  const b = document.createElement('button');
+  b.style.background = c;
+  b.onclick = () => send({ hex: c.slice(1), on: 1 });
+  $('presets').appendChild(b);
+});
+
+// ---------- 资源占用与硬件信息（每 3 秒读一次 /sys，页面在后台时暂停） ----------
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function fmtBytes(n) {
+  if (n >= 1048576) return (n / 1048576).toFixed(n >= 10485760 ? 0 : 2) + ' MB';
+  if (n >= 1024) return (n / 1024).toFixed(0) + ' KB';
+  return n + ' B';
+}
+function fmtUptime(s) {
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return (d ? d + ' 天 ' : '') + (d || h ? h + ' 小时 ' : '') + m + ' 分 ' + (s % 60) + ' 秒';
+}
+function rssiText(r) {
+  const q = r >= -55 ? '很好' : r >= -67 ? '良好' : r >= -75 ? '一般' : '较差';
+  return r + ' dBm（' + q + '）';
+}
+
+// 一条占用条：used/total，sub 是下方的补充说明
+function meter(label, used, total, sub) {
+  const pct = total ? used / total * 100 : 0;
+  const cls = pct >= 90 ? 'bad' : pct >= 75 ? 'warn' : '';
+  return '<div class="meter"><div class="head"><span>' + label + '</span><span>' +
+         fmtBytes(used) + ' / ' + fmtBytes(total) + '（' + pct.toFixed(0) + '%）</span></div>' +
+         '<div class="bar"><div class="' + cls + '" style="width:' + pct.toFixed(1) + '%"></div></div>' +
+         (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>';
+}
+const row = (k, v) => '<div class="row"><span>' + k + '</span><span>' + esc(v) + '</span></div>';
+
+function renderSys(s) {
+  const h = s.heap, p = s.psram, f = s.flash, w = s.wifi, c = s.chip;
+  $('meters').innerHTML =
+    meter('内部 RAM', h.total - h.free, h.total,
+          '开机以来最少剩余 ' + fmtBytes(h.min_free) + '，最大连续空闲块 ' + fmtBytes(h.max_block)) +
+    (p.total ? meter('PSRAM', p.total - p.free, p.total, '开机以来最少剩余 ' + fmtBytes(p.min_free))
+             : '<div class="sub">PSRAM 未启用</div>') +
+    meter('程序分区', f.sketch_size, f.app_partition, '闪存芯片总容量 ' + fmtBytes(f.chip_size));
+
+  $('info').innerHTML =
+    row('运行时长', fmtUptime(s.uptime_s)) +
+    row('上次重启原因', s.reset_reason) +
+    row('芯片', c.model + ' rev ' + c.revision + ' · ' + c.cores + ' 核 · ' + c.cpu_mhz + ' MHz') +
+    row('芯片温度', c.temp_c.toFixed(1) + ' ℃') +
+    row('闪存', fmtBytes(f.chip_size) + ' · ' + f.speed_mhz + ' MHz') +
+    row('SDK 版本', c.sdk) +
+    (w.mode === 'STA'
+      ? row('WiFi', w.ssid) + row('信号', rssiText(w.rssi)) + row('信道', w.channel)
+      : row('WiFi', '热点模式 · 已连接 ' + w.stations + ' 台设备')) +
+    row('IP 地址', w.ip) +
+    row('MAC 地址', w.mac) +
+    row('WebSocket 在线', s.ws_clients + ' 个页面');
+
+  $('sysTime').textContent = '· ' + new Date().toLocaleTimeString() + ' 更新';
+}
+
+async function loadSys() {
+  if (document.hidden || testing) return;  // 测速时不插队，免得影响结果
+  try {
+    renderSys(await (await fetch('/sys')).json());
+  } catch (e) {
+    $('sysTime').textContent = '· 读取失败';
+  }
+}
+loadSys();
+setInterval(loadSys, 3000);
+document.addEventListener('visibilitychange', loadSys);
+
+// ---------- 网速测试 ----------
+// 下行：浏览器边收边统计；上行：用板子自己统计的字节数和用时，比浏览器的上传进度准
+// （浏览器的上传进度只代表数据交给了系统，不代表板子已经收到）
+
+const mbps = (bytes, ms) => (bytes * 8 / Math.max(ms, 1) / 1000).toFixed(1) + ' Mbps';
+
+async function testPing() {
+  const t = [];
+  for (let i = 0; i < 5; i++) {
+    const t0 = performance.now();
+    await (await fetch('/state', { cache: 'no-store' })).text();
+    t.push(performance.now() - t0);
+  }
+  t.sort((a, b) => a - b);
+  return t[2];
+}
+
+async function testDown(mb, onProgress) {
+  const res = await fetch('/speed/down?mb=' + mb, { cache: 'no-store' });
+  if (!res.ok) throw new Error('下行请求失败（' + res.status + '）');
+  const reader = res.body.getReader(), total = mb * 1048576;
+  let got = 0, first = 0, t0 = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    // 从收到第一块数据开始计时，排除建立连接的时间；第一块本身不计入
+    if (!t0) { t0 = performance.now(); first = value.length; }
+    got += value.length;
+    onProgress(got / total, got - first, performance.now() - t0);
+  }
+  if (got < total) throw new Error('下行数据不完整，连接中途断开');
+  return { bytes: got - first, ms: performance.now() - t0 };
+}
+
+function testUp(mb, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/speed/up');
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');  // 不能是表单格式，见板子端注释
+    const t0 = performance.now();
+    xhr.upload.onprogress = e => onProgress(e.loaded / e.total, e.loaded, performance.now() - t0);
+    xhr.onload = () => {
+      if (xhr.status !== 200) return reject(new Error('上行请求失败（' + xhr.status + '）'));
+      const r = JSON.parse(xhr.responseText);
+      resolve({ bytes: r.bytes, ms: r.us / 1000 });
+    };
+    xhr.onerror = () => reject(new Error('上行连接中断'));
+    xhr.send(new Uint8Array(mb * 1048576));
+  });
+}
+
+$('spBtn').onclick = async () => {
+  const mb = +$('spSize').value, bar = $('spBar');
+  testing = true;
+  $('spBtn').disabled = $('spSize').disabled = true;
+  ['spPing', 'spDown', 'spUp'].forEach(id => $(id).textContent = '-');
+  try {
+    $('spMsg').textContent = '测延迟...';
+    $('spPing').textContent = (await testPing()).toFixed(0) + ' ms';
+
+    $('spMsg').textContent = '测下行...';
+    const d = await testDown(mb, (p, b, ms) => {
+      bar.style.width = (p * 50) + '%';
+      $('spDown').textContent = mbps(b, ms) + ' …';
+    });
+    $('spDown').textContent = mbps(d.bytes, d.ms);
+
+    $('spMsg').textContent = '测上行...';
+    $('spUp').textContent = '…';
+    const u = await testUp(mb, (p, b, ms) => { bar.style.width = (50 + p * 50) + '%'; });
+    $('spUp').textContent = mbps(u.bytes, u.ms);
+
+    bar.style.width = '100%';
+    $('spMsg').textContent = '完成 · ' + new Date().toLocaleTimeString() + ' · 1 Mbps = 0.125 MB/s';
+  } catch (e) {
+    $('spMsg').textContent = '测速失败：' + e.message;
+  } finally {
+    testing = false;
+    $('spBtn').disabled = $('spSize').disabled = false;
+    loadSys();
+  }
+};
+</script>
+</body>
+</html>
