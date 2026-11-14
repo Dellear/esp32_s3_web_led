@@ -6,10 +6,14 @@
 <title>ESP32 灯控</title>
 <link rel="icon" href="data:,">
 <style>
-  body { font-family: system-ui, sans-serif; background: #111; color: #eee;
-         max-width: 420px; margin: 0 auto; padding: 24px 16px; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; background: #111; color: #eee; margin: 0; padding: 24px 16px; }
+  .wrap { max-width: 420px; margin: 0 auto; }
   h1 { font-size: 22px; margin: 0 0 20px; }
-  .preview { height: 90px; border-radius: 16px; margin-bottom: 20px;
+  h2 { font-size: 16px; margin: 0 0 12px; color: #ccc; }
+  .grid { display: grid; gap: 16px; }
+  .card { background: #1b1b1b; border-radius: 14px; padding: 16px; min-width: 0; }
+  .preview { height: 90px; border-radius: 16px; margin-bottom: 4px;
              box-shadow: 0 0 40px var(--c); background: var(--c); transition: .15s; }
   label { display: block; margin: 18px 0 8px; color: #aaa; font-size: 14px; }
   input[type=color] { width: 100%; height: 56px; border: none; border-radius: 12px; background: none; }
@@ -19,12 +23,11 @@
   .power { width: 100%; height: 52px; margin-top: 24px; font-size: 18px; border: none;
            border-radius: 12px; cursor: pointer; background: #2a7; color: #fff; }
   .power.off { background: #444; }
+  .power:disabled { opacity: .5; cursor: default; }
   .status { margin-top: 16px; color: #777; font-size: 13px; text-align: center; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
          background: #a33; margin-right: 6px; vertical-align: middle; }
   .dot.ok { background: #2a7; }
-  h2 { font-size: 16px; margin: 32px 0 12px; color: #ccc; }
-  .card { background: #1b1b1b; border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; }
   .row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 14px; }
   .row span:first-child { color: #888; flex-shrink: 0; }
   .row span:last-child { text-align: right; word-break: break-all; font-variant-numeric: tabular-nums; }
@@ -38,33 +41,52 @@
   .bar div.bad { background: #c33; }
   .sub { font-size: 12px; color: #666; margin-top: 4px; }
   select { background: #222; color: #eee; border: 1px solid #333; border-radius: 8px; padding: 4px 8px; }
-  .power:disabled { opacity: .5; cursor: default; }
+
+  /* 电脑端：两列横版卡片，灯控和硬件信息占满一行 */
+  @media (min-width: 900px) {
+    body { padding: 32px 24px; }
+    .wrap { max-width: 1200px; }
+    .grid { grid-template-columns: 1fr 1fr; gap: 20px; }
+    .card { padding: 20px 24px; }
+    .wide { grid-column: 1 / -1; }
+    .light { display: grid; grid-template-columns: 2fr 3fr; column-gap: 32px; }
+    .light h2 { grid-column: 1 / -1; }
+    .light .preview { height: auto; min-height: 200px; margin: 0; }
+    .light .controls label:first-child { margin-top: 0; }
+    #info { display: grid; grid-template-columns: 1fr 1fr; column-gap: 48px; }
+  }
 </style>
 </head>
 <body>
+<div class="wrap">
 <h1>ESP32-S3 灯控</h1>
-<div class="preview" id="preview"></div>
+<div class="grid">
 
-<label>颜色</label>
-<input type="color" id="color">
+<section class="card wide light">
+  <h2>灯控</h2>
+  <div class="preview" id="preview"></div>
+  <div class="controls">
+    <label>颜色</label>
+    <input type="color" id="color">
 
-<label>快捷颜色</label>
-<div class="presets" id="presets"></div>
+    <label>快捷颜色</label>
+    <div class="presets" id="presets"></div>
 
-<label>亮度 <span id="bv"></span></label>
-<input type="range" id="bright" min="0" max="255">
+    <label>亮度 <span id="bv"></span></label>
+    <input type="range" id="bright" min="0" max="255">
 
-<button class="power" id="power"></button>
-<div class="status"><span class="dot" id="dot"></span><span id="status">连接中...</span></div>
+    <button class="power" id="power"></button>
+    <div class="status"><span class="dot" id="dot"></span><span id="status">连接中...</span></div>
+  </div>
+</section>
 
-<h2>资源占用 <span class="sub" id="sysTime"></span></h2>
-<div class="card" id="meters"></div>
+<section class="card">
+  <h2>资源占用 <span class="sub" id="sysTime"></span></h2>
+  <div id="meters"></div>
+</section>
 
-<h2>硬件与网络</h2>
-<div class="card" id="info"></div>
-
-<h2>网速测试</h2>
-<div class="card">
+<section class="card">
+  <h2>网速测试</h2>
   <div class="row"><span>测试数据量</span><span><select id="spSize">
     <option value="1">1 MB</option><option value="4">4 MB</option><option value="16" selected>16 MB</option>
   </select></span></div>
@@ -74,6 +96,14 @@
   <div class="bar" style="margin-top:10px"><div id="spBar"></div></div>
   <div class="sub" id="spMsg">灯控不受影响；测速期间其他网页请求（如资源占用刷新）会等测完再处理</div>
   <button class="power" id="spBtn" style="margin-top:14px">开始测速</button>
+</section>
+
+<section class="card wide">
+  <h2>硬件与网络</h2>
+  <div id="info"></div>
+</section>
+
+</div>
 </div>
 
 <script>
