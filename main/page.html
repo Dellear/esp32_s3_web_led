@@ -66,13 +66,13 @@
 <h2>网速测试</h2>
 <div class="card">
   <div class="row"><span>测试数据量</span><span><select id="spSize">
-    <option value="1" selected>1 MB</option><option value="4">4 MB</option><option value="16">16 MB</option>
+    <option value="1">1 MB</option><option value="4">4 MB</option><option value="16" selected>16 MB</option>
   </select></span></div>
   <div class="row"><span>延迟（HTTP 往返，取中位数）</span><span id="spPing">-</span></div>
   <div class="row"><span>下行（板子 → 浏览器）</span><span id="spDown">-</span></div>
   <div class="row"><span>上行（浏览器 → 板子）</span><span id="spUp">-</span></div>
   <div class="bar" style="margin-top:10px"><div id="spBar"></div></div>
-  <div class="sub" id="spMsg">测试期间板子暂停响应其他请求，灯控会卡顿几秒</div>
+  <div class="sub" id="spMsg">灯控不受影响；测速期间其他网页请求（如资源占用刷新）会等测完再处理</div>
   <button class="power" id="spBtn" style="margin-top:14px">开始测速</button>
 </div>
 
