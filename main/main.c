@@ -24,13 +24,13 @@
 #include <string.h>
 #include <strings.h>
 
-#include "freertos/FreeRTOS.h"
+// FreeRTOS 要求先包含 FreeRTOS.h，再包含其他 freertos 头文件，所以即使没直接用也要保留
+#include "freertos/FreeRTOS.h"  // IWYU pragma: keep
 #include "freertos/event_groups.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
 #include "driver/temperature_sensor.h"
-#include "esp_app_format.h"
 #include "esp_chip_info.h"
 #include "esp_clk_tree.h"
 #include "esp_event.h"
@@ -38,7 +38,6 @@
 #include "esp_heap_caps.h"
 #include "esp_http_server.h"
 #include "esp_image_format.h"
-#include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
 #include "esp_ota_ops.h"
