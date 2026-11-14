@@ -12,14 +12,20 @@
 
 ## 使用方法
 
-1. 在 `main/secrets.h` 里填 WiFi 名称和密码（必须是 2.4GHz）：
+1. 把 `main/secrets.h.example` 复制一份，改名为 `main/secrets.h`：
+
+   ```powershell
+   Copy-Item main\secrets.h.example main\secrets.h
+   ```
+
+   然后在 `main/secrets.h` 里填 WiFi 名称和密码（必须是 2.4GHz）：
 
    ```c
    #define WIFI_SSID     "你的WiFi名称"
    #define WIFI_PASSWORD "你的WiFi密码"
    ```
 
-   这个文件已加入 `.gitignore`，不要上传到网上。
+   `secrets.h` 已加入 `.gitignore`，不会被提交，不要上传到网上。`secrets.h.example` 会被提交，只放示例内容，不要在里面写真实密码。如果没改示例里的名称，板子启动时会提示还没填 WiFi，直接开热点。
 
 2. 构建并烧录（第一次烧录或分区表变化后，先执行 `idf.py -p COM3 erase-flash`）：
 
@@ -90,7 +96,8 @@ python tcp_speed.py [板子IP] [秒数]
 │   ├── idf_component.yml   依赖组件
 │   ├── main.c              主程序
 │   ├── page.html           控制页面，嵌入到固件里
-│   └── secrets.h           WiFi 名称和密码
+│   ├── secrets.h.example   WiFi 配置示例，复制为 secrets.h 后填写
+│   └── secrets.h           WiFi 名称和密码（自己创建，不提交）
 └── README.md
 ```
 
