@@ -2,6 +2,17 @@
 
 用手机或电脑浏览器控制 ESP32-S3 板载 RGB 灯的颜色、亮度和开关，所有打开的页面实时同步。页面上还能看板子的资源占用、硬件信息，并测网速。
 
+## 页面截图
+
+页面按屏幕宽度自动切换布局：电脑端（宽度 ≥ 900px）是两列横版卡片，灯控和硬件信息各占一整行；手机端是单列竖版卡片。
+
+<p>
+  <img src="docs/screenshot-desktop.png" alt="电脑端页面" width="68%">
+  <img src="docs/screenshot-mobile.png" alt="手机端页面" width="28%">
+</p>
+
+截图里的 WiFi 名称和 MAC 地址已替换成占位文字。
+
 ## 硬件与环境
 
 - 板子：ESP32-S3 N16R8（16MB 闪存 + 8MB OPI PSRAM），板载 WS2812 灯在 GPIO48
@@ -89,11 +100,12 @@ python tcp_speed.py [板子IP] [秒数]
 ├── partitions.csv          分区表：两个 3MB 程序分区 + FAT 分区
 ├── sdkconfig.defaults      默认配置：闪存、PSRAM、WebSocket、socket 数量等
 ├── tcp_speed.py            电脑端纯 TCP 测速脚本
+├── docs                    README 用的页面截图
 ├── main
 │   ├── CMakeLists.txt
 │   ├── idf_component.yml   依赖组件
 │   ├── main.c              主程序
-│   ├── page.html           控制页面，嵌入到固件里
+│   ├── page.html           控制页面，嵌入到固件里，电脑端和手机端自适应布局
 │   ├── secrets.h.example   WiFi 配置示例，复制为 secrets.h 后填写
 │   └── secrets.h           WiFi 名称和密码（自己创建，不提交）
 └── README.md
