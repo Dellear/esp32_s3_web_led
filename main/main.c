@@ -1,5 +1,4 @@
-// 实验 6：网页遥控灯（WebSocket 版），ESP-IDF 移植版
-// 原 Arduino 工程：D:\Arduino_ESP32_S3\07_web_led
+// 网页遥控灯（WebSocket 版）
 //
 // 板子连上 WiFi 后运行：
 //   - 80 端口：HTTP 网页服务器，提供控制页面，以及 GET /state、POST /set、GET /sys（资源占用）接口，
@@ -51,11 +50,11 @@
 
 #include "secrets.h"
 
-#define RGB_LED_GPIO   48   // 和 Arduino 的 RGB_BUILTIN 一致
-#define RGB_BRIGHTNESS 64   // 和 Arduino 的 RGB_BRIGHTNESS 一致
+#define RGB_LED_GPIO   48   // 板载 WS2812 灯
+#define RGB_BRIGHTNESS 64   // 默认亮度
 #define HOSTNAME       "esp32-led"
 #define AP_SSID        "ESP32-LED"
-#define WS_MAX_CLIENTS 5    // 和 Arduino WebSockets 库默认的最大客户端数一致
+#define WS_MAX_CLIENTS 5    // WebSocket 最多同时连接的客户端数
 
 extern const char page_html_start[] asm("_binary_page_html_start");
 extern const char page_html_end[] asm("_binary_page_html_end");
@@ -66,7 +65,7 @@ static esp_netif_t *sta_netif, *ap_netif;
 static bool ap_mode = false;
 static led_strip_handle_t led;
 static temperature_sensor_handle_t temp_sensor;
-static uint32_t sketch_size;  // 程序镜像大小，开机算一次
+static uint32_t app_size;  // 程序镜像大小，开机算一次
 
 // ---------- 灯的状态 ----------
 // HTTP 和 WebSocket 是两个独立的服务器任务，都会改状态，所以要加锁
@@ -508,8 +507,8 @@ static esp_err_t handle_sys(httpd_req_t *req)
     // 闪存
     uint32_t flash_size = 0;
     esp_flash_get_size(NULL, &flash_size);
-    jcat(&j, ",\"flash\":{\"chip_size\":%lu,\"sketch_size\":%lu,\"app_partition\":%lu,\"speed_mhz\":%d}",
-         (unsigned long)flash_size, (unsigned long)sketch_size,
+    jcat(&j, ",\"flash\":{\"chip_size\":%lu,\"app_size\":%lu,\"app_partition\":%lu,\"speed_mhz\":%d}",
+         (unsigned long)flash_size, (unsigned long)app_size,
          (unsigned long)esp_ota_get_running_partition()->size,  // 当前程序所在分区的大小
          atoi(CONFIG_ESPTOOLPY_FLASHFREQ));
 
@@ -875,17 +874,17 @@ static void hw_init(void)
         temp_sensor = NULL;
     }
 
-    // 算出程序镜像的实际大小（对应 Arduino 的 ESP.getSketchSize）
+    // 算出程序镜像的实际大小
     const esp_partition_t *running = esp_ota_get_running_partition();
     esp_partition_pos_t pos = { .offset = running->address, .size = running->size };
     esp_image_metadata_t meta;
-    if (esp_image_get_metadata(&pos, &meta) == ESP_OK) sketch_size = meta.image_len;
+    if (esp_image_get_metadata(&pos, &meta) == ESP_OK) app_size = meta.image_len;
 }
 
 void app_main(void)
 {
     vTaskDelay(pdMS_TO_TICKS(1500));  // 给串口监视器一点时间连上
-    printf("实验 6：网页遥控灯（WebSocket 版）\n");
+    printf("网页遥控灯（WebSocket 版）\n");
 
     hw_init();
     wifi_init();

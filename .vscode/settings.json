@@ -30,6 +30,6 @@
   "clangd.arguments": [
     "--background-index",
     "--query-driver=**",
-    "--compile-commands-dir=d:\\esp32_projects\\07_web_led/build"
+    "--compile-commands-dir=d:\\esp32_projects\\esp32_s3_web_led/build"
   ]
 }

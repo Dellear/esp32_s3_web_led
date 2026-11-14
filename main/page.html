@@ -177,7 +177,7 @@ function renderSys(s) {
           '开机以来最少剩余 ' + fmtBytes(h.min_free) + '，最大连续空闲块 ' + fmtBytes(h.max_block)) +
     (p.total ? meter('PSRAM', p.total - p.free, p.total, '开机以来最少剩余 ' + fmtBytes(p.min_free))
              : '<div class="sub">PSRAM 未启用</div>') +
-    meter('程序分区', f.sketch_size, f.app_partition, '闪存芯片总容量 ' + fmtBytes(f.chip_size));
+    meter('程序分区', f.app_size, f.app_partition, '闪存芯片总容量 ' + fmtBytes(f.chip_size));
 
   $('info').innerHTML =
     row('运行时长', fmtUptime(s.uptime_s)) +

@@ -1,8 +1,6 @@
-# 实验 6：网页遥控灯（WebSocket 版）
+# 网页遥控灯（WebSocket 版）
 
 用手机或电脑浏览器控制 ESP32-S3 板载 RGB 灯的颜色、亮度和开关，所有打开的页面实时同步。页面上还能看板子的资源占用、硬件信息，并测网速。
-
-本工程是 Arduino 工程 `D:\Arduino_ESP32_S3\07_web_led` 的 ESP-IDF 移植版。
 
 ## 硬件与环境
 
@@ -88,7 +86,7 @@ python tcp_speed.py [板子IP] [秒数]
 
 ```
 ├── CMakeLists.txt
-├── partitions.csv          分区表，和 Arduino 的 app3M_fat9M_16MB 一致
+├── partitions.csv          分区表：两个 3MB 程序分区 + FAT 分区
 ├── sdkconfig.defaults      默认配置：闪存、PSRAM、WebSocket、socket 数量等
 ├── tcp_speed.py            电脑端纯 TCP 测速脚本
 ├── main
@@ -101,9 +99,9 @@ python tcp_speed.py [板子IP] [秒数]
 └── README.md
 ```
 
-## 和 Arduino 版的差别
+## 实现说明
 
 - WebSocket 在 81 端口的独立任务里运行，网页测速时灯控照常响应，只有 80 端口的 HTTP 请求要等测速结束。
-- WebSocket 心跳：Arduino 版 ping 后 3 秒没回应算一次失败；这里是下一次 ping（15 秒后）前没收到回应算一次失败，所以掉线的客户端要 30~45 秒才清理掉。
+- WebSocket 心跳：下一次 ping（15 秒后）前没收到回应算一次失败，所以掉线的客户端要 30~45 秒才清理掉。
 - `/set` 的参数不做 URL 解码。
 - 被拒绝的 WebSocket 连接会先收到 403 响应再断开。

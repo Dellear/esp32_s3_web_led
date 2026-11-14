@@ -1,4 +1,4 @@
-# 和 Arduino 的 app3M_fat9M_16MB 分区方案一致（16MB 闪存）
+# 16MB 闪存：两个 3MB 程序分区（OTA）+ 约 9.9MB FAT 分区 + 64KB coredump
 # Name,   Type, SubType, Offset,  Size, Flags
 nvs,      data, nvs,     0x9000,  0x5000,
 otadata,  data, ota,     0xe000,  0x2000,
