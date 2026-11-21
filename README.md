@@ -11,7 +11,7 @@
   <img src="docs/screenshot-mobile.png" alt="手机端页面" width="28%">
 </p>
 
-截图里的 WiFi 名称和 MAC 地址已替换成占位文字。
+截图里的 WiFi 名称、MAC 地址和 IPv6 地址已替换成占位文字。
 
 ## 硬件与环境
 
