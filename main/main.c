@@ -142,7 +142,8 @@ out:
 // ---------- 允许的来源（HTTP 和 WebSocket 共用） ----------
 // 握手时检查 Origin，防止别的网站借你的浏览器偷偷连上来（跨站 WebSocket 劫持）。
 // 允许的来源每次现场计算，所以 IP 变了也不用改代码：
-//   http://板子当前的局域网IP、http://192.168.4.1（热点模式）、http://esp32-led.local
+//   http://板子当前的局域网IP、http://192.168.4.1（热点模式）、http://esp32-led.local、
+//   http://[板子当前的任一 IPv6 地址]
 
 static bool origin_matches_netif(const char *origin, esp_netif_t *netif)
 {
@@ -154,6 +155,29 @@ static bool origin_matches_netif(const char *origin, esp_netif_t *netif)
     return strcmp(origin, want) == 0;
 }
 
+// IPv6 的 Origin 形如 http://[2001:db8::1]。地址写法不唯一（大小写、:: 压缩），
+// 所以解析成数字再和网卡上的每个 IPv6 地址比较，不比字符串
+static bool origin_matches_netif6(const char *origin, esp_netif_t *netif)
+{
+    if (!netif || strncasecmp(origin, "http://[", 8) != 0) return false;
+    const char *end = strchr(origin + 8, ']');
+    if (!end || end[1] != 0) return false;  // ] 后面不能再有东西（带端口的不认，网页都在 80 端口）
+    char host[48];
+    size_t len = end - (origin + 8);
+    if (len == 0 || len >= sizeof(host)) return false;
+    memcpy(host, origin + 8, len);
+    host[len] = 0;
+    esp_ip6_addr_t want;
+    if (esp_netif_str_to_ip6(host, &want) != ESP_OK) return false;
+
+    esp_ip6_addr_t addrs[CONFIG_LWIP_IPV6_NUM_ADDRESSES];
+    int n = esp_netif_get_all_ip6(netif, addrs);
+    for (int i = 0; i < n; i++) {
+        if (memcmp(addrs[i].addr, want.addr, sizeof(want.addr)) == 0) return true;
+    }
+    return false;
+}
+
 static bool is_allowed_origin(const char *raw)
 {
     // 去掉首尾空白
@@ -163,7 +187,8 @@ static bool is_allowed_origin(const char *raw)
     for (int i = strlen(origin) - 1; i >= 0 && isspace((unsigned char)origin[i]); i--) origin[i] = 0;
 
     if (strcasecmp(origin, "http://" HOSTNAME ".local") == 0) return true;
-    return origin_matches_netif(origin, sta_netif) || origin_matches_netif(origin, ap_netif);
+    return origin_matches_netif(origin, sta_netif) || origin_matches_netif(origin, ap_netif) ||
+           origin_matches_netif6(origin, sta_netif) || origin_matches_netif6(origin, ap_netif);
 }
 
 // 读取请求的 Origin 头。没有返回 false。
@@ -472,6 +497,24 @@ static void ip_of(esp_netif_t *netif, char *out, size_t size)
     snprintf(out, size, IPSTR, IP2STR(&info.ip));
 }
 
+// IPv6 地址转成 :: 压缩的小写写法（和浏览器地址栏一致）
+static void ip6_to_str(const esp_ip6_addr_t *a, char *out, size_t size)
+{
+    // esp_ip6_addr_t 和 lwIP 的 ip6_addr_t 内存布局相同，借用 lwIP 输出压缩写法
+    ip6addr_ntoa_r((const ip6_addr_t *)a, out, size);
+    for (char *p = out; *p; p++) *p = tolower((unsigned char)*p);
+}
+
+static const char *ip6_type_name(const esp_ip6_addr_t *a)
+{
+    switch (esp_netif_ip6_get_addr_type((esp_ip6_addr_t *)a)) {
+    case ESP_IP6_ADDR_IS_GLOBAL:       return "global";
+    case ESP_IP6_ADDR_IS_LINK_LOCAL:   return "link_local";
+    case ESP_IP6_ADDR_IS_UNIQUE_LOCAL: return "unique_local";
+    default:                           return "other";
+    }
+}
+
 // GET /sys：查看板子运行时的资源占用情况
 static esp_err_t handle_sys(httpd_req_t *req)
 {
@@ -529,6 +572,17 @@ static esp_err_t handle_sys(httpd_req_t *req)
         jcat(&j, ",\"ip\":"); jstr(&j, ip);
         jcat(&j, ",\"stations\":%d", list.num);
     }
+    // IPv6 地址：[{"addr":"2409:...","type":"global"}, ...]
+    esp_ip6_addr_t ip6s[CONFIG_LWIP_IPV6_NUM_ADDRESSES];
+    int n6 = esp_netif_get_all_ip6(ap_mode ? ap_netif : sta_netif, ip6s);
+    jcat(&j, ",\"ip6\":[");
+    for (int i = 0; i < n6; i++) {
+        char s6[48];
+        ip6_to_str(&ip6s[i], s6, sizeof(s6));
+        jcat(&j, "%s{\"addr\":", i ? "," : ""); jstr(&j, s6);
+        jcat(&j, ",\"type\":"); jstr(&j, ip6_type_name(&ip6s[i])); jcat(&j, "}");
+    }
+    jcat(&j, "]");
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     char macs[18];
@@ -692,14 +746,15 @@ static void start_http_server(void)
 
 static int tcp_listen(uint16_t port)
 {
-    int s = socket(AF_INET, SOCK_STREAM, 0);
+    // IPv6 socket 绑定到 :: 时，lwIP 默认双栈，IPv4 客户端也能连上
+    int s = socket(AF_INET6, SOCK_STREAM, 0);
     if (s < 0) return -1;
     int one = 1;
     setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
-    struct sockaddr_in addr = { 0 };
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    struct sockaddr_in6 addr = { 0 };
+    addr.sin6_family = AF_INET6;
+    addr.sin6_port = htons(port);
+    addr.sin6_addr = in6addr_any;
     if (bind(s, (struct sockaddr *)&addr, sizeof(addr)) < 0 || listen(s, 1) < 0) { close(s); return -1; }
     return s;
 }
@@ -769,6 +824,19 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
 {
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
+    } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_CONNECTED) {
+        // 生成 fe80:: 链路本地地址。有了它才能收到路由器通告，自动配置全局 IPv6 地址（SLAAC）
+        esp_netif_create_ip6_linklocal(sta_netif);
+    } else if (base == IP_EVENT && id == IP_EVENT_GOT_IP6) {
+        ip_event_got_ip6_t *e = data;
+        esp_ip6_addr_type_t type = esp_netif_ip6_get_addr_type(&e->ip6_info.ip);
+        char ip6[48];
+        ip6_to_str(&e->ip6_info.ip, ip6, sizeof(ip6));
+        if (type == ESP_IP6_ADDR_IS_LINK_LOCAL) {
+            printf("IPv6 链路本地地址：%s\n", ip6);
+        } else {
+            printf("IPv6 地址：%s，可以打开 http://[%s]\n", ip6, ip6);
+        }
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
         xEventGroupClearBits(wifi_events, WIFI_CONNECTED_BIT);
         if (!ap_mode) esp_wifi_connect();  // 掉线自动重连
@@ -797,6 +865,7 @@ static void wifi_init(void)
     wifi_events = xEventGroupCreate();
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifi_event_handler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_GOT_IP6, wifi_event_handler, NULL));
 }
 
 static bool connect_wifi(void)

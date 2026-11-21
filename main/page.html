@@ -200,6 +200,15 @@ function meter(label, used, total, sub) {
 }
 const row = (k, v) => '<div class="row"><span>' + k + '</span><span>' + esc(v) + '</span></div>';
 
+const IP6_TYPES = { global: '公网', unique_local: '内网', link_local: '链路本地', other: '其他' };
+// 每个 IPv6 地址一行，公网地址排在最前面
+function ipv6Rows(list) {
+  if (!list.length) return row('IPv6 地址', '未获取');
+  const order = ['global', 'unique_local', 'link_local', 'other'];
+  return list.slice().sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type))
+    .map(a => row('IPv6（' + (IP6_TYPES[a.type] || a.type) + '）', a.addr)).join('');
+}
+
 function renderSys(s) {
   const h = s.heap, p = s.psram, f = s.flash, w = s.wifi, c = s.chip;
   $('meters').innerHTML =
@@ -220,6 +229,7 @@ function renderSys(s) {
       ? row('WiFi', w.ssid) + row('信号', rssiText(w.rssi)) + row('信道', w.channel)
       : row('WiFi', '热点模式 · 已连接 ' + w.stations + ' 台设备')) +
     row('IP 地址', w.ip) +
+    ipv6Rows(w.ip6 || []) +
     row('MAC 地址', w.mac) +
     row('WebSocket 在线', s.ws_clients + ' 个页面');
 

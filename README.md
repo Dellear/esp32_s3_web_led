@@ -44,7 +44,7 @@
    idf.py -p COM3 flash monitor
    ```
 
-3. 连接 WiFi 时灯会慢闪黄色。连上后串口会打印地址，用浏览器打开 `http://esp32-led.local` 或串口里显示的 IP。
+3. 连接 WiFi 时灯会慢闪黄色。连上后串口会打印地址，用浏览器打开 `http://esp32-led.local` 或串口里显示的 IP。路由器开了 IPv6 的话，串口还会打印 IPv6 地址，也可以用 `http://[IPv6地址]` 打开，见下面的 [IPv6](#ipv6)。
 
 4. 如果 15 秒内连不上 WiFi，板子会开一个叫 `ESP32-LED` 的开放热点。手机连上后打开 `http://192.168.4.1`。
 
@@ -64,7 +64,7 @@ HTTP 接口（80 端口）：
 | `GET /` | 控制页面 |
 | `GET /state` | 当前灯的状态 |
 | `POST /set` | 改灯的状态，参数 `hex=RRGGBB&bright=0~255&on=0\|1` 都可选，放在请求体（表单格式）或网址里都行。只接受 POST，带 Origin 头且不是板子自己的网页发来的请求会被拒绝 |
-| `GET /sys` | 运行时长、内存、PSRAM、闪存、WiFi 等信息 |
+| `GET /sys` | 运行时长、内存、PSRAM、闪存、WiFi、IPv6 地址等信息 |
 | `GET /speed/down?mb=1~32` | 网页测速下行，返回 mb 兆字节的数据 |
 | `POST /speed/up` | 网页测速上行，请求体是任意数据，返回板子统计的字节数和用时 |
 
@@ -83,6 +83,18 @@ WebSocket 协议（`ws://板子IP:81/`）：
 
 浏览器只能从板子自己的网页连接 WebSocket（检查 Origin 头），防止别的网站借你的浏览器偷偷控制灯。服务器每 15 秒 ping 一次客户端，连续 2 次没回应就断开。
 
+## IPv6
+
+板子连上 WiFi 后会自动配置 IPv6 地址（SLAAC），需要路由器开启 IPv6。拿到的地址会打印在串口，也显示在网页“硬件和网络”卡片里，按类型分为：
+
+- 公网：`2` 或 `3` 开头，运营商分配的全局地址
+- 内网：`fd` 开头，路由器分配的唯一本地地址，只在家里局域网有效
+- 链路本地：`fe80::` 开头，浏览器不能用它打开网页
+
+用浏览器打开 `http://[IPv6地址]`（方括号不能省）即可。80、81 端口和 5001、5002 测速端口都同时支持 IPv4 和 IPv6，Origin 检查也认板子当前的所有 IPv6 地址。热点模式下只有 IPv4。
+
+注意：公网 IPv6 地址从外网可以直接访问，能不能连进来取决于光猫或路由器的 IPv6 防火墙。板子没有登录验证，如果防火墙放行，任何人都能控制灯，建议保持路由器默认的“禁止外部主动连入”。
+
 ## 纯 TCP 测速
 
 不经过 HTTP 服务器，用来和网页测速对比。电脑端运行：
@@ -98,7 +110,7 @@ python tcp_speed.py [板子IP] [秒数]
 ```
 ├── CMakeLists.txt
 ├── partitions.csv          分区表：两个 3MB 程序分区 + FAT 分区
-├── sdkconfig.defaults      默认配置：闪存、PSRAM、WebSocket、socket 数量等
+├── sdkconfig.defaults      默认配置：闪存、PSRAM、WebSocket、socket 数量、IPv6 等
 ├── tcp_speed.py            电脑端纯 TCP 测速脚本
 ├── docs                    README 用的页面截图
 ├── main

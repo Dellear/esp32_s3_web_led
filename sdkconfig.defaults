@@ -51,3 +51,6 @@ CONFIG_COMPILER_OPTIMIZATION_PERF=y
 # 窗口调大后，测速时 WiFi 和 lwIP 的缓冲会占掉大量内部 RAM（实测最少只剩 21 KB），
 # 让它们优先从 8MB PSRAM 里分配，内部 RAM 留给其他功能
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+
+# IPv6：接收路由器通告，自动配置全局地址（SLAAC）
+CONFIG_LWIP_IPV6_AUTOCONFIG=y
